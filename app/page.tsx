@@ -7,29 +7,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import ModelViewer from "@/components/ui/model-viewer";
 import {
   Store,
   ShoppingCart,
   PackageOpen,
   Wrench,
-  Rocket,
-  Box,
   Sliders,
-  Pencil,
   Trash2,
   Link2,
   Hexagon,
   AlertTriangle,
   XCircle,
   CheckCircle2,
-  Cpu,
   ArrowLeft,
   DollarSign,
   StepForward,
 } from "lucide-react";
 
 /** Shop-first + Sequential Wizard (SparkFun/Adafruit vibe)
- * Flow: Shop → Wizard (Platform → Power → Circuit → Motors → Peripherals → Review) → Cart
+ * Flow: Shop → Wizard (Platform → Power → Circuit → Motors → Peripherals → Review → Order) → Cart
  * - Bulky cannot be amphibious (always Land-only; no water kit prompt)
  * - Unique categories (battery, circuit, motor) use REPLACE behavior in wizard
  * - Auxiliary components appear as "Articles" on the Shop bottom list
@@ -75,6 +72,14 @@ const CATALOG = {
     // Services
     { id: "svc_assembly", category: "service", title: "Assembly & Firmware Flash", price: 29, img: "service" },
     { id: "kit_waterproof_gill", category: "service", title: "Thegill Waterproofing Kit & Test", price: 19, img: "service" },
+    { id: "svc_johnson_struts", category: "service", title: "Johnson Strut Kit", price: 15, img: "service" },
+    { id: "svc_bulky_platform", category: "service", title: "Bulky Platform Option", price: 25, img: "service" },
+  ],
+  variants: [
+    { id: "thegill_heavy", platformId: "thegill", title: "Thegill – Heavy", includes: ["giller", "bat_4s_2200_tg", "tg_johnson_48"], img: "thegill" },
+    { id: "thegill_rapht", platformId: "thegill", title: "Thegill – Rapht", includes: ["giller", "bat_4s_2200_tg", "kit_waterproof_gill", "gill_lights"], img: "thegill" },
+    { id: "bulky_bare", platformId: "bulky", title: "Bulky – Bare", includes: ["bulker", "bulky_oled", "bat_3s_5200_25c"], img: "bulky" },
+    { id: "bulky_vdrop", platformId: "bulky", title: "VDrop Bulky", includes: ["bulker", "bulky_oled", "bat_3s_5200_25c"], img: "bulky" },
   ],
   presets: [
     { id: "gill_rapht", platformId: "thegill", title: "Thegill – Rapht (Amphibious)", includes: ["giller", "bat_4s_2200_tg", "kit_waterproof_gill", "gill_lights"], price: 349, img: "thegill" },
@@ -150,6 +155,7 @@ const WIZ_STEPS = [
   { id:"motor", title:"Motors" },
   { id:"peripheral", title:"Peripherals (optional)" },
   { id:"review", title:"Review" },
+  { id:"order", title:"Order" },
 ];
 
 function stepIndex(id){ return WIZ_STEPS.findIndex(s=>s.id===id); }
@@ -171,16 +177,25 @@ export default function App(){
   const startWizard=(platformId)=>{
     const pf = byId(CATALOG.platforms,platformId);
     const flags = { ...(pf.defaults||{}) };
-    // Force landOnly for Bulky
     if(pf.id==="bulky") flags.landOnly = true;
-    setWizard({ step:"battery", builder:{ platformId:pf.id, selected:[], flags } });
+    setWizard({ step:"platform", builder:{ platformId:pf.id, variantId:null, selected:[], flags } });
     setView(VIEWS.WIZARD);
+  };
+
+  const selectVariant=(variantId)=>{
+    const v = byId(CATALOG.variants,variantId);
+    if(!v) return;
+    const pf = byId(CATALOG.platforms,v.platformId);
+    const flags = { ...(pf.defaults||{}) };
+    if(pf.id==="bulky") flags.landOnly = true;
+    setWizard({ step:"battery", builder:{ platformId:pf.id, variantId:v.id, selected:[...v.includes], flags } });
   };
 
   const applyWizardAdd=(moduleId)=>setWizard(w=>({ ...w, builder: replaceUnique(w.builder, CATALOG, moduleId) }));
   const removeFromWizard=(moduleId)=>setWizard(w=>({ ...w, builder:{ ...w.builder, selected: w.builder.selected.filter(x=>x!==moduleId) } }));
 
   const canProceed=(step,builder)=>{
+    if(step==="platform") return !!builder.variantId;
     if(step==="battery") return selectedOfCat(CATALOG,builder.selected,"battery").length>0;
     if(step==="circuit") return selectedOfCat(CATALOG,builder.selected,"circuit").length>0;
     if(step==="motor") return selectedOfCat(CATALOG,builder.selected,"motor").length>0;
@@ -192,9 +207,11 @@ export default function App(){
 
   const saveWizard=(assembled)=>{
     const pf=byId(CATALOG.platforms,wizard.builder.platformId);
+    const variant=byId(CATALOG.variants,wizard.builder.variantId);
     const bom=[...wizard.builder.selected, ...(assembled?["svc_assembly"]:[])];
-    setCart(c=>[...c,{type:"platform",platformId:pf.id,title:`${pf.title} (Custom ${assembled?"Assembled":"Kit"})`,bom,assembled,qty:1}]);
-    setBuilds(bs=>[...bs,{id:`b_${Date.now()}`,title:`${pf.title} — saved`,platformId:pf.id,selected:[...wizard.builder.selected],flags:{...wizard.builder.flags}}]);
+    const title=`${variant?.title || pf.title} (Custom ${assembled?"Assembled":"Kit"})`;
+    setCart(c=>[...c,{type:"platform",platformId:pf.id,title,bom,assembled,qty:1}]);
+    setBuilds(bs=>[...bs,{id:`b_${Date.now()}`,title:variant?.title||pf.title,platformId:pf.id,variantId:variant?.id,selected:[...wizard.builder.selected],flags:{...wizard.builder.flags}}]);
     setView(VIEWS.CART);
   };
 
@@ -207,7 +224,7 @@ export default function App(){
       )}
 
       {view===VIEWS.WIZARD && wizard.builder && (
-        <WizardView catalog={CATALOG} expert={expert} wiz={wizard} onPrev={prevStep} onNext={nextStep} canProceed={canProceed} onAdd={applyWizardAdd} onRemove={removeFromWizard} onSave={saveWizard} onExit={()=>setView(VIEWS.SHOP)} />
+        <WizardView catalog={CATALOG} expert={expert} wiz={wizard} onPrev={prevStep} onNext={nextStep} canProceed={canProceed} onAdd={applyWizardAdd} onRemove={removeFromWizard} onSave={saveWizard} onExit={()=>setView(VIEWS.SHOP)} onSelectVariant={selectVariant} />
       )}
 
       {view===VIEWS.CART && (
@@ -327,21 +344,32 @@ function ShopView({catalog,onStartWizard,onAddPreset,onAddComponent}){
 }
 
 // WIZARD --------------------------------------------------
-function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,onSave,onExit}){
+function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,onSave,onExit,onSelectVariant}){
   const platform = byId(catalog.platforms,wiz.builder.platformId);
   const invAll = filterInventory(catalog,wiz.builder.platformId,expert);
   const {issues,status,loads}=useMemo(()=>evaluate(platform,wiz.builder.selected,catalog,wiz.builder.flags),[platform,wiz.builder,catalog]);
 
   const step = wiz.step;
   const gated = (id)=>{
-    if(id==='review') return true;
+    if(id==='review') return step==='review' || step==='order';
+    if(id==='order') return step==='order';
     return step===id;
   };
 
   const categoryForStep = { battery:'battery', circuit:'circuit', motor:'motor', peripheral:'peripheral' }[step];
   const items = categoryForStep ? invAll.filter(m=>m.category===categoryForStep) : [];
 
-  const badges = useMemo(()=>{ const bat=batteryOf(catalog,wiz.builder.selected); const circ=circuitOf(catalog,wiz.builder.selected); const list=[]; if(circ) list.push(`${circ.compat?.motor_channels||0}× DC`); if(bat) list.push(`${bat.compat?.S}S ${bat.compat?.has_BMS?"Li-ion(BMS)":"LiPo"}`); list.push((platform.id==="bulky"||wiz.builder.flags.landOnly)?"Land-only":"Amphibious"); return list; },[wiz.builder,catalog]);
+  const badges = useMemo(()=>{ const bat=batteryOf(catalog,wiz.builder.selected); const circ=circuitOf(catalog,wiz.builder.selected); const list=[]; if(circ) list.push(`${circ.compat?.motor_channels||0}× DC`); if(bat) list.push(`${bat.compat?.S}S ${bat.compat?.has_BMS?"Li-ion(BMS)":"LiPo"}`); list.push((platform.id==="bulky"||wiz.builder.flags.landOnly)?"Land-only":"Amphibious"); return list; },[wiz.builder,catalog,platform.id]);
+
+  const variantOptions = catalog.variants.filter(v=>v.platformId===platform.id);
+  const bomModules = [{ id:platform.id, title:platform.title, category:'platform', price:platform.price }, ...listModules(catalog,wiz.builder.selected)];
+  const bomTotal = bomModules.reduce((s,m)=>s+(m.price||0),0);
+  const serviceSuggestions = catalog.modules.filter(m=>m.category==='service').filter(s=>{
+    if(s.id==='kit_waterproof_gill') return wiz.builder.platformId==='thegill' && !wiz.builder.flags.landOnly && !wiz.builder.selected.includes('kit_waterproof_gill');
+    if(s.id==='svc_johnson_struts') return wiz.builder.platformId==='thegill' && (wiz.builder.selected.includes('tg_johnson_48') || wiz.builder.selected.includes('tg_johnson_48_enc'));
+    if(s.id==='svc_bulky_platform') return wiz.builder.platformId==='bulky' && wiz.builder.variantId==='bulky_bare';
+    return false;
+  });
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -361,52 +389,99 @@ function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,
         <Separator className="mb-3"/>
 
         {gated('platform') && (
-          <div className="text-sm">Platform locked to <b>{platform.title}</b>. {platform.id==="bulky" && <Badge variant="outline" className="ml-2">Land-only</Badge>}</div>
+          <div>
+            <div className="text-sm mb-2">Platform: <b>{platform.title}</b>{platform.id==="bulky" && <Badge variant="outline" className="ml-2">Land-only</Badge>}</div>
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {variantOptions.map((v)=>(
+                <Card key={v.id} className="p-3">
+                  <ImgPh label={v.img}/>
+                  <CardContent className="p-0 mt-2 text-sm font-semibold">{v.title}</CardContent>
+                  <CardFooter className="p-0 mt-2 flex items-center justify-end">
+                    {wiz.builder.variantId===v.id ? (
+                      <Badge variant="secondary">Selected</Badge>
+                    ) : (
+                      <Button size="sm" onClick={()=>onSelectVariant(v.id)}>Select</Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          </div>
         )}
 
         {gated('battery') && (
-          <StepGrid title="Choose Power" note="Pick one battery (you can change later)." items={items} onAdd={onAdd} onRemove={onRemove} builder={wiz.builder} replace unique category="battery" />
+          <StepGrid title="Choose Power" note="Pick one battery (you can change later)." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="battery" />
         )}
 
         {gated('circuit') && (
-          <StepGrid title="Choose Circuit" note="Pick one controller board." items={items} onAdd={onAdd} onRemove={onRemove} builder={wiz.builder} replace unique category="circuit" />
+          <StepGrid title="Choose Circuit" note="Pick one controller board." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="circuit" />
         )}
 
         {gated('motor') && (
-          <StepGrid title="Choose Motor Set" note="Pick one motor set; adapters auto-add if needed." items={items} onAdd={onAdd} onRemove={onRemove} builder={wiz.builder} replace unique category="motor" />
+          <StepGrid title="Choose Motor Set" note="Pick one motor set; adapters auto-add if needed." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="motor" />
         )}
 
         {gated('peripheral') && (
-          <StepGrid title="Peripherals (optional)" note="Add any extras you like." items={items} onAdd={onAdd} onRemove={onRemove} builder={wiz.builder} />
+          <StepGrid title="Peripherals (optional)" note="Add any extras you like." items={items} onAdd={onAdd} builder={wiz.builder} />
         )}
 
         {gated('review') && (
           <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid gap-4">
+              <Card className="p-4">
+                <div className="text-sm font-semibold mb-2">3D Preview</div>
+                <ModelViewer label={byId(catalog.variants,wiz.builder.variantId)?.title || platform.title}/>
+              </Card>
+              <Card className="p-4">
+                <div className="text-sm font-semibold mb-2">Status</div>
+                <HexHUD status={status} badges={badges} />
+                <div className="text-sm grid gap-2 mt-2">
+                  <div className="flex items-center justify-between"><span>5V peripherals</span><span className="font-medium">{fmtA(loads.fiveV_A)}</span></div>
+                  <div className="flex items-center justify-between"><span>Motors (cont)</span><span className="font-medium">{fmtA(loads.motors_A)}</span></div>
+                </div>
+                <Separator className="my-3"/>
+                <div className="font-semibold text-sm mb-2">Compatibility</div>
+                <div className="flex flex-col gap-2">
+                  {issues.length===0 && <div className="text-sm text-emerald-700 flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/>All checks passed</div>}
+                  {issues.map((iss,i)=>(<Issue key={i} issue={iss}/>))}
+                </div>
+              </Card>
+            </div>
             <Card className="p-4">
-              <div className="text-sm font-semibold mb-2">Status</div>
-              <HexHUD status={status} badges={badges} />
-              <div className="text-sm grid gap-2 mt-2">
-                <div className="flex items-center justify-between"><span>5V peripherals</span><span className="font-medium">{fmtA(loads.fiveV_A)}</span></div>
-                <div className="flex items-center justify-between"><span>Motors (cont)</span><span className="font-medium">{fmtA(loads.motors_A)}</span></div>
+              <div className="text-sm font-semibold mb-2">Bill of Materials</div>
+              <div className="grid gap-2">
+                {bomModules.map((m)=>(
+                  <div key={m.id} className="flex items-center justify-between p-2 rounded-lg bg-white border">
+                    <div className="text-sm"><div className="font-medium">{m.title}</div><div className="text-xs text-muted-foreground">{m.category}</div></div>
+                    <PriceTag price={m.price}/>
+                  </div>
+                ))}
               </div>
               <Separator className="my-3"/>
-              <div className="font-semibold text-sm mb-2">Compatibility</div>
-              <div className="flex flex-col gap-2">
-                {issues.length===0 && <div className="text-sm text-emerald-700 flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/>All checks passed</div>}
-                {issues.map((iss,i)=>(<Issue key={i} issue={iss}/>))}
-              </div>
+              <div className="flex items-center justify-between text-sm font-semibold"><span>Total</span><PriceTag price={bomTotal}/></div>
             </Card>
+          </div>
+        )}
+
+        {gated('order') && (
+          <div className="grid gap-4">
             <Card className="p-4">
-              <div className="text-sm font-semibold mb-2">Selected Modules</div>
-              <div className="grid sm:grid-cols-2 gap-2">
-                {wiz.builder.selected.map((id)=>{ const m=byId(catalog.modules,id); if(!m) return null; return (
-                  <div key={id} className="flex items-center justify-between p-2 rounded-lg bg-white border">
-                    <div className="text-sm"><div className="font-medium">{m.title}</div><div className="text-xs text-muted-foreground">{m.category}</div></div>
-                    <Button size="sm" variant="ghost" onClick={()=>onRemove(id)}><Trash2 className="w-4 h-4"/></Button>
+              <div className="text-sm font-semibold mb-2">Services & Options</div>
+              {serviceSuggestions.length===0 && <div className="text-sm text-muted-foreground">No additional services.</div>}
+              <div className="grid gap-2">
+                {serviceSuggestions.map((s)=>(
+                  <div key={s.id} className="flex items-center justify-between p-2 rounded-lg bg-white border">
+                    <div className="text-sm"><div className="font-medium">{s.title}</div><div className="text-xs text-muted-foreground">{s.category}</div></div>
+                    {wiz.builder.selected.includes(s.id) ? (
+                      <Button size="sm" variant="ghost" onClick={()=>onRemove(s.id)}><Trash2 className="w-4 h-4"/></Button>
+                    ) : (
+                      <Button size="sm" onClick={()=>onAdd(s.id)}>Add</Button>
+                    )}
                   </div>
-                );})}
+                ))}
               </div>
-              <div className="mt-3 flex gap-2">
+              <Separator className="my-3"/>
+              <div className="flex gap-2">
                 <Button variant="secondary" onClick={()=>onSave(false)}><PackageOpen className="w-4 h-4 mr-1"/>Add to Cart (Kit)</Button>
                 <Button variant="outline" onClick={()=>onSave(true)}><Wrench className="w-4 h-4 mr-1"/>Add to Cart (Assembled)</Button>
               </div>
@@ -418,10 +493,10 @@ function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,
         <Separator className="my-3"/>
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={onPrev} disabled={wiz.step==='platform'}><ArrowLeft className="w-4 h-4 mr-1"/>Back</Button>
-          {wiz.step!=="review" ? (
+          {wiz.step!=="order" ? (
             <Button size="sm" onClick={onNext} disabled={!canProceed(wiz.step,wiz.builder)}>Next</Button>
           ) : (
-            <div className="text-xs text-muted-foreground">Ready to add to cart above.</div>
+            <div className="text-xs text-muted-foreground">Select options and add to cart above.</div>
           )}
         </div>
       </Card>
@@ -429,7 +504,7 @@ function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,
   );
 }
 
-function StepGrid({title,note,items,onAdd,onRemove,builder,unique}){
+function StepGrid({title,note,items,onAdd,builder,unique}){
   const selectedIds = builder.selected;
   const cat = items[0]?.category;
   const current = listModules(CATALOG, selectedIds).find(m=>m.category===cat);
