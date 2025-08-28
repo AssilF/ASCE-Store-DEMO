@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 export default function ContactPage() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   return (
-    <main className="max-w-md mx-auto p-6">
+    <main className="max-w-md mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Contact us</h1>
       <div className="grid gap-3">
         <div className="flex items-center border rounded-lg px-2">
           <User className="w-4 h-4 mr-2" />

@@ -1,18 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeToggle from "@/components/theme-toggle";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "ASCE Store",
@@ -26,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
+      <body className="antialiased min-h-screen flex flex-col">
         <header className="border-b p-4 flex items-center justify-between text-sm">
           <nav className="flex gap-4">
             <Link href="/">Home</Link>
@@ -42,7 +31,10 @@ export default function RootLayout({
             <ThemeToggle />
           </div>
         </header>
-        <div className="flex-1">{children}</div>
+        <main className="flex-1">{children}</main>
+        <footer className="border-t p-4 text-xs text-muted-foreground text-center">
+          © {new Date().getFullYear()} ASCE Platforms. All rights reserved.
+        </footer>
       </body>
     </html>
   );
