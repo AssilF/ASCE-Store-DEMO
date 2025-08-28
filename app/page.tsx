@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import ModelViewer from "@/components/ui/model-viewer";
+import { products } from "@/lib/inventory";
 import {
   Store,
   ShoppingCart,
@@ -106,21 +107,26 @@ const byId = (arr, id) => arr.find((x) => x.id === id);
 const uniq = (arr) => Array.from(new Set(arr));
 const fmtA = (a) => `${a.toFixed(1)} A`;
 const listModules = (catalog, ids) => ids.map((id) => byId(catalog.modules, id)).filter(Boolean);
-const filterInventory = (catalog, platformId, expert) => expert ? catalog.modules : catalog.modules.filter((m)=>PLATFORM_RULES[platformId]?.allow.includes(m.id));
+const filterInventory = (catalog, platformId, expert) =>
+  catalog.modules.map((m) => ({
+    ...m,
+    disabled: !expert && !PLATFORM_RULES[platformId]?.allow.includes(m.id),
+  }));
 const adapterFor = (platformId, moduleId) => PLATFORM_RULES[platformId]?.adapterFor?.[moduleId] || null;
 const selectedOfCat = (catalog, selected, cat) => listModules(catalog, selected).filter((m)=>m.category===cat);
 
 // REPLACE strategy for unique categories in wizard
-function replaceUnique(builder, catalog, moduleId){
-  const m = byId(catalog.modules,moduleId);
-  if(!m) return builder;
-  if(!UNIQUE_CATS.includes(m.category)){
-    const adp=adapterFor(builder.platformId,moduleId);
-    return { ...builder, selected: uniq([...(adp?[adp]:[]),...builder.selected,moduleId]) };
+function replaceUnique(builder, catalog, moduleId, expert){
+  const m = byId(catalog.modules, moduleId);
+  if (!m) return builder;
+  const adp = adapterFor(builder.platformId, moduleId);
+  if (expert || !UNIQUE_CATS.includes(m.category)) {
+    return { ...builder, selected: uniq([...(adp ? [adp] : []), ...builder.selected, moduleId]) };
   }
-  const keep = listModules(catalog,builder.selected).filter(x=>x.category!==m.category).map(x=>x.id);
-  const adp=adapterFor(builder.platformId,moduleId);
-  const next = uniq([...(adp?[adp]:[]),...keep,moduleId]);
+  const keep = listModules(catalog, builder.selected)
+    .filter((x) => x.category !== m.category)
+    .map((x) => x.id);
+  const next = uniq([...(adp ? [adp] : []), ...keep, moduleId]);
   return { ...builder, selected: next };
 }
 
@@ -171,7 +177,11 @@ export default function App(){
   const [wizard,setWizard]=useState({ step:"platform", builder:null });
 
   const goto=(v)=>setView(v);
-  const addComponent=(id)=>setCart(c=>[...c,{type:"component",id,title:byId(CATALOG.modules,id)?.title,qty:1}]);
+  const addComponent = (prod) =>
+    setCart((c) => [
+      ...c,
+      { type: "component", id: prod.sku, title: prod.name, qty: 1 },
+    ]);
   const addPreset=(p,assembled)=>setCart(c=>[...c,{type:"platform",platformId:p.platformId,title:p.title+(assembled?" (Assembled)":" (Kit)"),bom:[...p.includes,...(assembled?["svc_assembly"]:[])],assembled,qty:1}]);
 
   const startWizard=(platformId)=>{
@@ -191,14 +201,21 @@ export default function App(){
     setWizard({ step:"battery", builder:{ platformId:pf.id, variantId:v.id, selected:[...v.includes], flags } });
   };
 
-  const applyWizardAdd=(moduleId)=>setWizard(w=>({ ...w, builder: replaceUnique(w.builder, CATALOG, moduleId) }));
+  const applyWizardAdd = (moduleId) =>
+    setWizard((w) => ({
+      ...w,
+      builder: replaceUnique(w.builder, CATALOG, moduleId, expert),
+    }));
   const removeFromWizard=(moduleId)=>setWizard(w=>({ ...w, builder:{ ...w.builder, selected: w.builder.selected.filter(x=>x!==moduleId) } }));
 
-  const canProceed=(step,builder)=>{
-    if(step==="platform") return !!builder.variantId;
-    if(step==="battery") return selectedOfCat(CATALOG,builder.selected,"battery").length>0;
-    if(step==="circuit") return selectedOfCat(CATALOG,builder.selected,"circuit").length>0;
-    if(step==="motor") return selectedOfCat(CATALOG,builder.selected,"motor").length>0;
+  const canProceed = (step, builder) => {
+    if (step === "platform") return !!builder.variantId;
+    if (step === "battery")
+      return expert || selectedOfCat(CATALOG, builder.selected, "battery").length > 0;
+    if (step === "circuit")
+      return expert || selectedOfCat(CATALOG, builder.selected, "circuit").length > 0;
+    if (step === "motor")
+      return expert || selectedOfCat(CATALOG, builder.selected, "motor").length > 0;
     return true;
   };
 
@@ -273,7 +290,8 @@ function PriceTag({price}){ return (<div className="flex items-center gap-1 text
 
 // SHOP: Featured Platforms + Auxiliary Articles (bottom)
 function ShopView({catalog,onStartWizard,onAddPreset,onAddComponent}){
-  const articles = catalog.modules.filter(m=>!['adapter','service'].includes(m.category));
+  const articles = products.filter(p=>p.category!=="platform" && p.category!=="service");
+  const categories = Array.from(new Set(articles.map(a=>a.category)));
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -313,23 +331,25 @@ function ShopView({catalog,onStartWizard,onAddPreset,onAddComponent}){
 
       {/* Auxiliary Articles */}
       <div>
-        <div className="font-semibold text-sm mb-2">Articles (Batteries, Circuits, Motors, Peripherals)</div>
-        <Tabs defaultValue="battery" className="w-full">
-          <TabsList className="grid grid-cols-4 w-full">
-            {"battery,circuit,motor,peripheral".split(",").map((c)=>(<TabsTrigger key={c} value={c} className="capitalize">{c}</TabsTrigger>))}
+        <div className="font-semibold text-sm mb-2">Articles</div>
+        <Tabs defaultValue={categories[0]} className="w-full">
+          <TabsList className="flex flex-wrap w-full">
+            {categories.map((c)=>(
+              <TabsTrigger key={c} value={c} className="capitalize">{c}</TabsTrigger>
+            ))}
           </TabsList>
-          {"battery,circuit,motor,peripheral".split(",").map((c)=>(
+          {categories.map((c)=>(
             <TabsContent key={c} value={c}>
               <ScrollArea className="h-72 pr-4">
                 <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {articles.filter(m=>m.category===c).map((m)=>(
-                    <Card key={m.id} className="p-3">
-                      <ImgPh label={m.img}/>
-                      <CardContent className="p-0 mt-2 text-sm font-semibold">{m.title}</CardContent>
+                    <Card key={m.sku} className="p-3">
+                      <ImgPh label={m.category}/>
+                      <CardContent className="p-0 mt-2 text-sm font-semibold">{m.name}</CardContent>
                       <div className="text-xs text-muted-foreground">{m.category}</div>
                       <CardFooter className="p-0 mt-2 flex items-center justify-between">
                         <PriceTag price={m.price}/>
-                        <Button size="sm" onClick={()=>onAddComponent(m.id)}><PackageOpen className="w-4 h-4 mr-1"/>Add</Button>
+                        <Button size="sm" onClick={()=>onAddComponent(m)}><PackageOpen className="w-4 h-4 mr-1"/>Add</Button>
                       </CardFooter>
                     </Card>
                   ))}
@@ -410,15 +430,15 @@ function WizardView({catalog,expert,wiz,onPrev,onNext,canProceed,onAdd,onRemove,
         )}
 
         {gated('battery') && (
-          <StepGrid title="Choose Power" note="Pick one battery (you can change later)." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="battery" />
+          <StepGrid title="Choose Power" note="Pick one battery (you can change later)." items={items} onAdd={onAdd} builder={wiz.builder} unique={!expert} />
         )}
 
         {gated('circuit') && (
-          <StepGrid title="Choose Circuit" note="Pick one controller board." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="circuit" />
+          <StepGrid title="Choose Circuit" note="Pick one controller board." items={items} onAdd={onAdd} builder={wiz.builder} unique={!expert} />
         )}
 
         {gated('motor') && (
-          <StepGrid title="Choose Motor Set" note="Pick one motor set; adapters auto-add if needed." items={items} onAdd={onAdd} builder={wiz.builder} replace unique category="motor" />
+          <StepGrid title="Choose Motor Set" note="Pick one motor set; adapters auto-add if needed." items={items} onAdd={onAdd} builder={wiz.builder} unique={!expert} />
         )}
 
         {gated('peripheral') && (
@@ -515,8 +535,9 @@ function StepGrid({title,note,items,onAdd,builder,unique}){
         {items.map((m)=>{
           const added = selectedIds.includes(m.id);
           const showReplace = unique && current && !added;
+          const disabled = m.disabled;
           return (
-            <Card key={m.id} className="p-3">
+            <Card key={m.id} className={`p-3 ${disabled ? "opacity-50" : ""}`}>
               <ImgPh label={m.img}/>
               <CardContent className="p-0 mt-2 text-sm font-semibold">{m.title}</CardContent>
               <div className="text-[11px] text-muted-foreground">{m.category}</div>
@@ -525,9 +546,9 @@ function StepGrid({title,note,items,onAdd,builder,unique}){
                 {added ? (
                   <Badge variant="secondary">Selected</Badge>
                 ) : showReplace ? (
-                  <Button size="sm" onClick={()=>onAdd(m.id)}>Replace</Button>
+                  <Button size="sm" onClick={()=>onAdd(m.id)} disabled={disabled}>Replace</Button>
                 ) : (
-                  <Button size="sm" onClick={()=>onAdd(m.id)}>Add</Button>
+                  <Button size="sm" onClick={()=>onAdd(m.id)} disabled={disabled}>Add</Button>
                 )}
               </CardFooter>
             </Card>
@@ -648,16 +669,17 @@ function SelfTests(){
     {name:"Battery S-range mismatch flagged", run:()=>{ const fakeCat={...CATALOG,modules:[...CATALOG.modules,{id:"fakeCirc",category:"circuit",title:"Fake",compat:{input_S_min:4,input_S_max:4,reg_5V_A:2.0,motor_channels:4}}]}; const p=byId(CATALOG.platforms,"thegill"); const e=evaluate(p,["fakeCirc","bat_3s_5200_25c"],fakeCat,{landOnly:true}); return e.status==="R"; }},
 
     // New tests for wizard logic
-    {name:"Wizard gating: no Next on empty battery", run:()=>{ const b={platformId:"thegill",selected:[],flags:{landOnly:true}}; return (selectedOfCat(CATALOG,b.selected,"battery").length===0) && (false===canProceedForTest("battery",b)); }},
+    {name:"Wizard gating: no Next on empty battery", run:()=>{ const b={platformId:"thegill",selected:[],flags:{landOnly:true}}; return (selectedOfCat(CATALOG,b.selected,"battery").length===0) && (false===canProceedForTest("battery",b,false)); }},
     {name:"Bulky is land-only", run:()=>{ const p=byId(CATALOG.platforms,"bulky"); const e=evaluate(p,["bulker","bat_3s_5200_25c"],CATALOG,{landOnly:false}); return e.issues.some(i=>i.msg.includes("land-only")); }},
-    {name:"Unique REPLACE: motor set switches", run:()=>{ const b0={platformId:"thegill",selected:["tt_motor"],flags:{landOnly:true}}; const b1=replaceUnique(b0,CATALOG,"tg_johnson_48"); const sel=listModules(CATALOG,b1.selected).filter(m=>m.category==='motor').map(m=>m.id); return sel.length===1 && sel[0]==='tg_johnson_48'; }},
+    {name:"Unique REPLACE: motor set switches", run:()=>{ const b0={platformId:"thegill",selected:["tt_motor"],flags:{landOnly:true}}; const b1=replaceUnique(b0,CATALOG,"tg_johnson_48",false); const sel=listModules(CATALOG,b1.selected).filter(m=>m.category==='motor').map(m=>m.id); return sel.length===1 && sel[0]==='tg_johnson_48'; }},
+    {name:"Expert skips circuit", run:()=>{ const b={platformId:"thegill",selected:["bat_3s_5200_25c"],flags:{landOnly:true}}; return canProceedForTest("circuit",b,true); }},
   ];
 
   // Helper to test gating
-  function canProceedForTest(step,builder){
-    if(step==="battery") return selectedOfCat(CATALOG,builder.selected,"battery").length>0;
-    if(step==="circuit") return selectedOfCat(CATALOG,builder.selected,"circuit").length>0;
-    if(step==="motor") return selectedOfCat(CATALOG,builder.selected,"motor").length>0;
+  function canProceedForTest(step,builder,exp=false){
+    if(step==="battery") return exp || selectedOfCat(CATALOG,builder.selected,"battery").length>0;
+    if(step==="circuit") return exp || selectedOfCat(CATALOG,builder.selected,"circuit").length>0;
+    if(step==="motor") return exp || selectedOfCat(CATALOG,builder.selected,"motor").length>0;
     return true;
   }
 
