@@ -47,6 +47,7 @@ export default function QuickBuilder() {
   return (
     <section className="space-y-6">
       <h2 className="text-xl font-semibold">Configurator — Design your platform</h2>
+
       <div className="grid gap-6 md:grid-cols-3">
         <div className="space-y-4">
           <Card>
@@ -110,6 +111,7 @@ export default function QuickBuilder() {
           <ModelViewer label={`${color} µTomba`} />
           <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{hex}</pre>
         </div>
+
       </div>
     </section>
   );

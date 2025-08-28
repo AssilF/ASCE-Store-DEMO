@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+
 import { Store, Puzzle, Cpu, Users } from "lucide-react";
+
+
 import QuickBuilder from "@/components/quick-builder";
 import Showcase from "@/components/showcase";
 
@@ -28,6 +31,7 @@ export default function HomePage() {
           </Button>
         </div>
       </section>
+
 
       <section className="grid gap-6 sm:grid-cols-2 md:grid-cols-3">
         {FEATURES.map((f) => (
