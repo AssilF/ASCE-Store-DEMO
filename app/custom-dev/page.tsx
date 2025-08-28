@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 export default function CustomDevPage() {
   const [req, setReq] = useState("");
   return (
-    <main className="max-w-md mx-auto p-6">
+    <main className="max-w-md mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Custom development</h1>
       <div className="flex items-start border rounded-lg px-2">
         <Wrench className="w-4 h-4 mr-2 mt-2" />
         <textarea
